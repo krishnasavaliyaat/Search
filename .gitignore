@@ -1,0 +1,32 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+search_venv/
+env/
+
+# Environment files
+.env
+.env.*
+
+# Logs
+*.log
+logs/
+
+# Data and generated artifacts
+data/
+*.json
+*.tmp
+*.bak
+
+# Streamlit / notebooks
+.streamlit/secrets.toml
+.ipynb_checkpoints/
+
+# OS files
+.DS_Store
+Thumbs.db
