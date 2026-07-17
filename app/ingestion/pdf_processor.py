@@ -6,7 +6,6 @@ import pypdfium2 as pdfium
 from pathlib import Path
 from dotenv import load_dotenv
 
-from app.ingestion.ocr import extract_page_ocr
 from app.ingestion.chunking import create_paragraph_chunks
 from app.gemma.prompts import START_DETECTOR_PROMPT, OCR_PROMPT
 
