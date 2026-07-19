@@ -1,15 +1,21 @@
 START_DETECTOR_PROMPT = """
-Analyze the layout structure of this book page image. 
-Your sole task is to determine if this page represents the EXACT first page where the core narrative/content of the book begins.
+Analyze the layout structure of both image frames simultaneously to verify if they match the strict starting layout sequence of a book:
 
-VISUAL DETECTION RULES FOR BOOK START PAGE:
-- CRITICAL SEARCH ANCHOR: The true start page MUST contain BOTH the primary Book Name/Title (in a dominant, extra-large font size) AND the first Main Chapter Heading or initial opening Question centered together directly near the top of the layout structure.
-- NEGATIVE BINDING RULES: If the page contains standard layout paragraphs, long narrative text lines, prefaces, standard introduction letters, or biographical summaries, you MUST classify "has_book_started" as false.
-- This opening layout page typically does NOT display a physical page index number at the top running margins.
+1. EVALUATE FRAME A (Candidate Page 1):
+   - Check if this frame marks the first page of the core content. 
+   - VISUAL SIGNATURE: It must display the primary Book Title/Name prominently in a large font size near the upper-middle section, with the first Main Chapter Heading or Question positioned directly beneath it[cite: 2].
+   - There should be NO running page number labels printed in the top margins[cite: 2].
+   - If this matches, set "is_title_heading_present" to true.
+
+2. EVALUATE FRAME B (Candidate Page 2):
+   - Check the running margins, top header bands, and bottom footer zones.
+   - VISUAL SIGNATURE: It must explicitly show the physical layout page number "2" (or "२" in native scripts) printed in the margin zone[cite: 2].
+   - If this matches, set "is_page_two_present" to true.
 
 Return the response STRICTLY as a valid JSON object:
 {
-    "has_book_started": true
+    "is_frame_a_title_page": true,
+    "is_frame_b_page_two": true
 }
 """
 
