@@ -23,12 +23,13 @@ def find_end_page(doc) -> int:
     and looking for the last page that contains a page number.
     """
     total_pages = len(doc)
+
+    # Skip last two pages
+    start_scan = max(total_pages - 2, 1)
     print("🔍 [Locating Content End] Initiating reverse scan for last numbered page...")
 
-    # Scan the last 20 pages, which is a reasonable range for appendices, indexes, etc.
-    scan_limit = min(20, total_pages)
 
-    for i in range(total_pages, total_pages - scan_limit, -1):
+    for i in range(start_scan, 0, -1):
         page_idx = i - 1
         print(f"   -> Checking for page number on PDF Page {i}...")
 
@@ -69,7 +70,7 @@ def main():
     """
     Main function to find start/end boundaries for all PDFs and save to Excel.
     """
-    pdf_files = list(PDF_SOURCE_DIR.glob("*.pdf"))
+    pdf_files = list(PDF_SOURCE_DIR.rglob("*.pdf"))
     if not pdf_files:
         print("No new PDFs found in `data/new_pdf` to process.")
         return
@@ -80,9 +81,10 @@ def main():
             print(f"Loaded {len(existing_df)} existing records from {BOUNDARY_FILE}.")
         except Exception as e:
             print(f"Could not read existing boundary file, creating a new one. Error: {e}")
-            existing_df = pd.DataFrame(columns=["book_name", "start_page", "end_page"])
+            existing_df = pd.DataFrame(columns=["book_name","language","start_page","end_page",])
     else:
-        existing_df = pd.DataFrame(columns=["book_name", "start_page", "end_page"])
+        existing_df = pd.DataFrame(columns=["book_name","language","start_page","end_page",])
+
 
     # Ensure book_name is string type for merging
     existing_df['book_name'] = existing_df['book_name'].astype(str)
@@ -91,9 +93,26 @@ def main():
 
     for pdf_path in pdf_files:
         book_name = pdf_path.name
-        if book_name in existing_df["book_name"].values:
-            print(f"Skipping '{book_name}', already in boundary file.")
-            continue
+        language = pdf_path.parent.name
+        mask = ((existing_df["book_name"] == book_name) &(existing_df["language"] == language))
+
+        if mask.any():
+            row = existing_df.loc[mask].iloc[0]
+
+            start_page = row["start_page"]
+            end_page = row["end_page"]
+
+            # Skip only if both boundaries already exist
+            if pd.notna(start_page) and pd.notna(end_page):
+                print(f"Skipping '{language}/{book_name}', boundaries already complete.")
+                continue
+
+            # Resume from end-page detection
+            resume_end_only = True
+            print(f"Resuming '{language}/{book_name}' (start page already found).")
+
+        else:
+            resume_end_only = False
 
         print("\n======================================")
         print(f"Processing: {book_name}")
@@ -103,14 +122,27 @@ def main():
             doc = pdfium.PdfDocument(str(pdf_path))
             
             # 1. Find and save start page first
-            start_page = find_start_page(doc, pdf_path.stem)
-            
-            # Create a temporary record and save it
-            temp_record = {"book_name": book_name, "start_page": start_page, "end_page": -1}
-            new_records.append(temp_record)
-            
-            updated_df = pd.concat([existing_df, pd.DataFrame(new_records)], ignore_index=True)
-            save_boundaries_to_excel(updated_df)
+            if not resume_end_only:
+                start_page = find_start_page(doc, pdf_path.stem)
+
+                temp_record = {
+                    "book_name": book_name,
+                    "language": language,
+                    "start_page": start_page,
+                    "end_page": "",
+                }
+
+                new_records.append(temp_record)
+
+                updated_df = pd.concat(
+                    [existing_df, pd.DataFrame(new_records)],
+                    ignore_index=True
+                )
+                save_boundaries_to_excel(updated_df)
+
+            else:
+                start_page = int(start_page)
+
             print(f"   -> Start Page: {start_page} (Saved progress)")
 
             # 2. Find end page
@@ -118,10 +150,21 @@ def main():
 
             # 3. Update the record with the end page
             # Find the record we just added and update its end_page
-            for record in new_records:
-                if record["book_name"] == book_name:
-                    record["end_page"] = end_page
-                    break
+            if resume_end_only:
+                idx = existing_df.index[mask][0]
+
+                existing_df.at[idx, "end_page"] = end_page
+
+                save_boundaries_to_excel(existing_df)
+
+            else:
+                for record in new_records:
+                    if (
+                        record["book_name"] == book_name
+                        and record["language"] == language
+                    ):
+                        record["end_page"] = end_page
+                        break
             
             print(f"✅ Completed boundary detection for: {book_name}")
             print(f"   -> Final Boundaries -> Start: {start_page}, End: {end_page}")
@@ -133,6 +176,8 @@ def main():
                 doc.close()
     
     if new_records: # Save the final complete data
+        print(new_records)
+        print(pd.DataFrame(new_records))
         final_df = pd.concat([existing_df, pd.DataFrame(new_records)], ignore_index=True)
         save_boundaries_to_excel(final_df)
         print(f"\nBoundary file update process complete for {len(new_records)} new entries.")

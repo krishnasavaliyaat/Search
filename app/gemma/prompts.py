@@ -47,33 +47,72 @@ Return the response STRICTLY as a valid JSON object:
 }
 """
 
+# START_PAGE_PROMPT = """
+# You are a document layout analyst. Your task is to verify if two sequential image frames represent the start of a book's main content.
+
+# - FRAME A: The first image.
+# - FRAME B: The second image, which immediately follows FRAME A.
+
+# Analyze both frames based on these strict rules:
+
+# 1.  **FRAME A ANALYSIS**:
+#     - Must be the main title page.
+#     - It must display the book's primary title in a large, prominent font.
+#     - It must NOT have a visible page number in its headers or footers.
+
+# 2.  **FRAME B ANALYSIS**:
+#     - Must be the second page of the main content.
+#     - It must have the page number "2" (or its equivalent in another script, like "२") clearly printed in a header or footer.
+
+# Return ONLY a valid JSON object indicating if BOTH conditions are met.
+
+# Example for a perfect match:
+# {
+#     "is_start_sequence": true
+# }
+
+# Example for a non-match:
+# {
+#     "is_start_sequence": false
+# }
+# """
+
 START_PAGE_PROMPT = """
-You are a document layout analyst. Your task is to verify if two sequential image frames represent the start of a book's main content.
+You are analyzing ONE scanned book page.
 
-- FRAME A: The first image.
-- FRAME B: The second image, which immediately follows FRAME A.
+Ignore the PDF page number completely.
 
-Analyze both frames based on these strict rules:
+Your task is ONLY to determine whether this page contains the BOOK'S PRINTED PAGE NUMBER "2".
 
-1.  **FRAME A ANALYSIS**:
-    - Must be the main title page.
-    - It must display the book's primary title in a large, prominent font.
-    - It must NOT have a visible page number in its headers or footers.
+Rules:
 
-2.  **FRAME B ANALYSIS**:
-    - Must be the second page of the main content.
-    - It must have the page number "2" (or its equivalent in another script, like "२") clearly printed in a header or footer.
+1. Look ONLY in the header and footer regions where printed page numbers normally appear.
 
-Return ONLY a valid JSON object indicating if BOTH conditions are met.
+2. Ignore any large numbers inside the content.
 
-Example for a perfect match:
+3. Ignore chapter numbers, verse numbers, list numbers, figure numbers and page decorations.
+
+4. Accept any script representing page number 2, including examples such as:
+- 2
+- २
+- ૨
+- ২
+- ੨
+
+5. Return true ONLY if the printed page number "2" appears as pagination.
+
+Return ONLY valid JSON.
+
+If page number 2 is found:
+
 {
-    "is_start_sequence": true
+    "has_page_2": true
 }
 
-Example for a non-match:
+Otherwise:
+
 {
-    "is_start_sequence": false
+    "has_page_2": false
 }
 """
 
