@@ -3,11 +3,12 @@ import time
 import shutil
 import json
 import pypdfium2 as pdfium
+import pandas as pd
 from pathlib import Path
 from dotenv import load_dotenv
 
 from app.ingestion.chunking import create_paragraph_chunks
-from app.gemma.prompts import START_DETECTOR_PROMPT, OCR_PROMPT
+from app.gemma.prompts import START_PAGE_PROMPT, OCR_PROMPT
 
 from google import genai
 from google.genai import errors, types
@@ -47,75 +48,91 @@ def call_gemma_api(payload_data, is_multipage_scan: bool = False) -> str:
             print(f"   [API Error] {e}")
             return "{}"
 
-def find_start_page_binary(doc) -> int:
+def find_start_page(doc, book_name: str) -> int:
     """
-    Finds the true Book Page 1 by looking for a strict two-page layout signature:
-    - Page A must contain the Main Book Title and primary Chapter Heading near the top.
-    - Page B (the immediate next page) must have the printed page number '2' in its header.
+    Finds the true start page by looking for a strict two-page layout signature:
+    - Page A (candidate for page 1) must be the main title page with no page number.
+    - Page B (the next page) must have the printed page number '2'.
     """
     total_pages = len(doc)
-    # Scan early pages where the start block could realistically be located
-    max_scan_pages = min(60, total_pages - 1) 
+    # We subtract 1 because we always need a next page to check
+    max_scan_pages = min(30, total_pages - 1)
 
-    print("🔍 [Locating Content Start] Initiating strict two-page sequential verification...")
+    print(f"🔍 [Locating Content Start] Initiating two-page sequence scan for '{book_name}'...")
 
-    for current_page in range(1, max_scan_pages + 1):
-        print(f"   -> Testing sequence: PDF Page {current_page} (as Page 1) & PDF Page {current_page + 1} (as Page 2)...")
+    # We check pairs of pages: (1,2), (2,3), (3,4), etc.
+    for i in range(max_scan_pages):
+        page_a_num = i + 1
+        page_b_num = i + 2
+        print(f"   -> Testing sequence: PDF Page {page_a_num} (as Page 1) & PDF Page {page_b_num} (as Page 2)...")
 
-        # 1. Render both candidate pages
-        img_a = doc[current_page - 1].render(scale=2.5).to_pil()
-        img_b = doc[current_page].render(scale=2.5).to_pil()
-
-        # 2. Package both frames together into a single contents list
-        payload = [
-            "--- FRAME A (Candidate Page 1) ---",
-            img_a,
-            "--- FRAME B (Candidate Page 2) ---",
-            img_b,
-            START_DETECTOR_PROMPT
-        ]
-
-        # Call the updated function definition safely
-        response_text = call_gemma_api(payload, is_multipage_scan=True)
-
-        # Safe cooldown delay to manage token-per-minute limits
-        time.sleep(3)
+        # Render both candidate pages
+        img_a = doc[i].render(scale=2.0).to_pil()
+        img_b = doc[i+1].render(scale=2.0).to_pil()
 
         try:
+            # Package frames for the multimodal prompt
+            payload = [
+                "--- FRAME A ---", img_a,
+                "--- FRAME B ---", img_b,
+                START_PAGE_PROMPT
+            ]
+            response_text = call_gemma_api(payload)
+            time.sleep(3)  # API cooldown
+
             clean_json = response_text.strip().strip("`").replace("json", "")
             data = json.loads(clean_json)
 
-            # Both conditions must be marked true by the model
-            if data.get("is_frame_a_title_page", False) and data.get("is_frame_b_page_two", False):
-                print(f"      🎯 [Sequence Verified!] PDF Page {current_page} locked as true start page.")
-                return current_page
+            if data.get("is_start_sequence", False):
+                print(f"      🎯 [Sequence Verified!] PDF Page {page_a_num} locked as true start page.")
+                return page_a_num
 
         except Exception as e:
-            print(f"      [Warning] Parsing anomaly on sequence check {current_page}: {e}")
+            print(f"      [Warning] Anomaly on sequence check for pages {page_a_num}-{page_b_num}: {e}")
             continue
 
-    print("⚠️ [Search Complete] Two-page verification inconclusive. Defaulting safely to PDF Page 1.")
+    print("⚠️ [Search Complete] Two-page verification inconclusive. Defaulting to PDF Page 1.")
     return 1
 
-def execute_pipeline(data_dir: Path, db_store, embedding_engine):
-    new_dir = data_dir / "new_pdf"
+def execute_pipeline(data_dir: Path, db_store, embedding_engine, book_to_process: str = None):
+    """
+    Executes the OCR and ingestion pipeline for books with pre-defined boundaries.
+    If `book_to_process` is specified, it only processes that single book.
+    Otherwise, it processes all books found in the boundary file that haven't been processed.
+    """
+    boundary_file = data_dir / "boundaries.xlsx"
     processed_dir = data_dir / "processed_pdf"
+    source_dir = data_dir / "new_pdf"
     json_output_dir = data_dir / "json"
-
-    for pdf_path in new_dir.glob("*.pdf"):
-        book_name = pdf_path.stem
-        print(f"\n[Processing] {pdf_path.name}...")
         
+    if not boundary_file.exists():
+        print(f"Error: Boundary file not found at '{boundary_file}'.")
+        print("Please run `find_boundaries.py` first to generate it.")
+        return
+
+    boundary_df = pd.read_excel(boundary_file)
+
+    if book_to_process:
+        boundary_df = boundary_df[boundary_df["book_name"] == book_to_process]
+
+    for _, row in boundary_df.iterrows():
+        book_name = row["book_name"]
+        start_pdf_page = int(row["start_page"])
+        end_pdf_page = int(row["end_page"])
+
+        pdf_path = source_dir / book_name
+        if not pdf_path.exists():
+            print(f"Skipping '{book_name}': PDF file not found in '{source_dir}'. It may have been processed already.")
+            continue
+
+        print(f"\n[Processing OCR] {book_name} from page {start_pdf_page} to {end_pdf_page}...")
         doc = pdfium.PdfDocument(str(pdf_path))
         ocr_results = []
         
-        try:
-            # Step 1: Discover structural starting anchor accurately via dynamic scanning bounds
-            start_pdf_page = find_start_page_binary(doc)
-            print(f"-> Starting high-precision transcription processing from PDF Page {start_pdf_page}...")
 
-            # Step 2: Loop linearly out from the isolated start page coordinate
-            for current_pdf_page in range(start_pdf_page, len(doc) + 1):
+        try:
+            # The start page is now read from the boundary file.
+            for current_pdf_page in range(start_pdf_page, end_pdf_page + 1):
                 p_idx = current_pdf_page - 1
                 page_layout = doc[p_idx]
                 
@@ -127,7 +144,7 @@ def execute_pipeline(data_dir: Path, db_store, embedding_engine):
                 for attempt in range(1, max_ocr_retries + 1):
                     try:
                         print(f"   -> Executing High-Precision OCR on PDF Page {current_pdf_page} (Attempt {attempt}/{max_ocr_retries})...")
-                        high_res_img = page_layout.render(scale=3.0).to_pil()
+                        high_res_img = page_layout.render(scale=3.0).to_pil() # TODO: This is not being passed to call_gemma_api
                         response_text = call_gemma_api(high_res_img, OCR_PROMPT)
                         
                         clean_json = response_text.strip().strip("`").replace("json", "")
@@ -193,8 +210,10 @@ def execute_pipeline(data_dir: Path, db_store, embedding_engine):
 
             if ocr_results:
                 flat_chunks = create_paragraph_chunks(book_name, ocr_results)
+                flat_chunks = create_paragraph_chunks(pdf_path.stem, ocr_results)
                 
                 json_file = json_output_dir / f"{book_name}.json"
+                json_file = json_output_dir / f"{pdf_path.stem}.json"
                 with open(json_file, "w", encoding="utf-8") as f:
                     json.dump(flat_chunks, f, ensure_ascii=False, indent=4)
                     
@@ -202,9 +221,11 @@ def execute_pipeline(data_dir: Path, db_store, embedding_engine):
                 print(f"-> Vectors and chunks successfully mapped to database coordinates.")
             else:
                 print(f"-> [Warning] No narrative pages were captured for this document file.")
+                print(f"-> [Warning] No narrative pages were captured for {book_name}.")
 
         finally:
             doc.close()
         
         shutil.move(str(pdf_path), str(processed_dir / pdf_path.name))
+        shutil.move(str(pdf_path), str(processed_dir / book_name))
         print(f"-> Successfully completed and relocated: {book_name}\n")

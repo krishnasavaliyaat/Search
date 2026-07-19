@@ -1,21 +1,20 @@
 START_DETECTOR_PROMPT = """
-Analyze the layout structure of both image frames simultaneously to verify if they match the strict starting layout sequence of a book:
+You are a document layout analyst. Your task is to determine if the provided image is the main title page of a book.
 
-1. EVALUATE FRAME A (Candidate Page 1):
-   - Check if this frame marks the first page of the core content. 
-   - VISUAL SIGNATURE: It must display the primary Book Title/Name prominently in a large font size near the upper-middle section, with the first Main Chapter Heading or Question positioned directly beneath it[cite: 2].
-   - There should be NO running page number labels printed in the top margins[cite: 2].
-   - If this matches, set "is_title_heading_present" to true.
+A main title page has these characteristics:
+- It features the main title of the book in a large, prominent font.
+- It is typically located after front matter like cover pages, publisher logos, or blank pages.
+- It should NOT be a table of contents, chapter heading, preface, or index.
 
-2. EVALUATE FRAME B (Candidate Page 2):
-   - Check the running margins, top header bands, and bottom footer zones.
-   - VISUAL SIGNATURE: It must explicitly show the physical layout page number "2" (or "२" in native scripts) printed in the margin zone[cite: 2].
-   - If this matches, set "is_page_two_present" to true.
+Analyze the image and determine if it meets the criteria for a main title page.
 
-Return the response STRICTLY as a valid JSON object:
+Be conservative. If you are not certain, respond with `false`.
+
+Return ONLY a valid JSON object with a single key "is_title_page".
+
+Example:
 {
-    "is_frame_a_title_page": true,
-    "is_frame_b_page_two": true
+    "is_title_page": true
 }
 """
 
@@ -45,5 +44,62 @@ Return the response STRICTLY as a valid JSON object:
         "First paragraph text block exactly as written...",
         "Second paragraph text block exactly as written..."
     ]
+}
+"""
+
+START_PAGE_PROMPT = """
+You are a document layout analyst. Your task is to verify if two sequential image frames represent the start of a book's main content.
+
+- FRAME A: The first image.
+- FRAME B: The second image, which immediately follows FRAME A.
+
+Analyze both frames based on these strict rules:
+
+1.  **FRAME A ANALYSIS**:
+    - Must be the main title page.
+    - It must display the book's primary title in a large, prominent font.
+    - It must NOT have a visible page number in its headers or footers.
+
+2.  **FRAME B ANALYSIS**:
+    - Must be the second page of the main content.
+    - It must have the page number "2" (or its equivalent in another script, like "२") clearly printed in a header or footer.
+
+Return ONLY a valid JSON object indicating if BOTH conditions are met.
+
+Example for a perfect match:
+{
+    "is_start_sequence": true
+}
+
+Example for a non-match:
+{
+    "is_start_sequence": false
+}
+"""
+
+END_PAGE_PROMPT = """
+You are a document layout analyst. Your task is to determine if the provided image contains a page number.
+
+Page numbers are typically found in the header or footer of a page.
+They can be Arabic numerals (1, 2, 3), Roman numerals (i, ii, iii), or numerals from other scripts like Gujarati (૧, ૨, ૩).
+
+Analyze the image and determine if a page number is present. Ignore all other text.
+
+Return ONLY a valid JSON object with two keys:
+- "has_page_number": a boolean (true/false).
+- "page_number": a string containing the detected page number, or null if not found.
+
+Be precise. If you are not certain, set "has_page_number" to false.
+
+Example for a page with a number:
+{
+    "has_page_number": true,
+    "page_number": "123"
+}
+
+Example for a page without a number:
+{
+    "has_page_number": false,
+    "page_number": null
 }
 """
