@@ -14,7 +14,7 @@ load_dotenv()
 
 DATA_PATH = Path(__file__).parent / "data"
 PDF_SOURCE_DIR = DATA_PATH / "new_pdf"
-BOUNDARY_FILE = DATA_PATH / "boundaries.xlsx"
+BOUNDARY_FILE = Path(__file__).parent / "boundaries.xlsx"
 
 
 def find_end_page(doc) -> int:

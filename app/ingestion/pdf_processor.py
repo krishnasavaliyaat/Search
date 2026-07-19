@@ -137,7 +137,7 @@ def execute_pipeline(data_dir: Path, db_store, embedding_engine, book_to_process
     If `book_to_process` is specified, it only processes that single book.
     Otherwise, it processes all books found in the boundary file that haven't been processed.
     """
-    boundary_file = data_dir / "boundaries.xlsx"
+    boundary_file = Path(__file__).parent / "boundaries.xlsx"
     processed_dir = data_dir / "processed_pdf"
     source_dir = data_dir / "new_pdf"
     json_output_dir = data_dir / "json"
