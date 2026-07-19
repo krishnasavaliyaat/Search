@@ -10,8 +10,8 @@ search_venv/
 env/
 
 # Environment files
-# .env
-# .env.*
+.env
+.env.*
 
 # Logs
 *.log
